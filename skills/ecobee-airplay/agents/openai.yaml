@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ecobee AirPlay"
+  short_description: "Discover and stream audio to Ecobee speakers"
+  default_prompt: "Use $ecobee-airplay to discover an Ecobee thermostat and play an audio file on it."
