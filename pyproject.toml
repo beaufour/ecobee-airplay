@@ -27,7 +27,7 @@ ecobee-airplay = "ecobee_airplay.cli:main"
 
 [dependency-groups]
 dev = [
-  "pytest>=8,<9",
+  "pytest>=8,<10",
   "ruff>=0.13,<0.14",
 ]
 
