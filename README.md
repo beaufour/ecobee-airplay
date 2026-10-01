@@ -87,9 +87,16 @@ can change with firmware updates.
 
 No devices found:
 
+- The message means discovery returned no matching receivers, not that there
+  are no Ecobees on the network. Run `uv run ecobee-airplay scan --timeout 15
+  --debug` to see whether discovery found any AirPlay/RAOP receivers and why
+  devices were ignored.
 - Confirm the thermostat and computer are on the same LAN.
-- Try its IP with `--device`; this uses unicast discovery and works across some
-  networks that block multicast DNS.
+- Try `uv run ecobee-airplay scan --device 192.168.1.42 --debug` with the
+  thermostat's IP; this uses unicast discovery and works across some networks
+  that block multicast DNS. `play --device` also accepts an IP.
+- On macOS, enable Local Network access for the terminal app under System
+  Settings > Privacy & Security > Local Network, then retry the scan.
 - On macOS, inspect advertisements directly with
   `dns-sd -B _raop._tcp local.`.
 - Confirm the device model begins with `EB-` in the scan result. The CLI

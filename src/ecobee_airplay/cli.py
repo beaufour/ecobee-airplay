@@ -54,14 +54,31 @@ def _filter_ecobees(configs: Iterable[Any]) -> list[Any]:
     )
 
 
-async def _discover(timeout: int, host: str | None = None) -> list[Any]:
+async def _discover(
+    timeout: int, host: str | None = None, *, debug: bool = False
+) -> list[Any]:
     configs = await pyatv.scan(
         asyncio.get_running_loop(),
         timeout=timeout,
         hosts=[host] if host else None,
         protocol={Protocol.AirPlay, Protocol.RAOP},
     )
-    return _filter_ecobees(configs)
+    ecobees = _filter_ecobees(configs)
+    if debug:
+        print(
+            f"Discovery ({host or 'multicast'}, {timeout}s): "
+            f"{len(configs)} AirPlay/RAOP receivers, {len(ecobees)} Ecobees",
+            file=sys.stderr,
+        )
+        for config in configs:
+            if not _is_ecobee(config):
+                status = "ignored: not identified as Ecobee"
+            elif not _has_raop(config):
+                status = "ignored: no RAOP service"
+            else:
+                status = "accepted"
+            print(f"  {_device_summary(config)}: {status}", file=sys.stderr)
+    return ecobees
 
 
 def _looks_like_ip(value: str) -> bool:
@@ -154,15 +171,28 @@ def _print_devices(configs: Sequence[Any]) -> None:
 
 
 async def _run_scan(args: argparse.Namespace) -> int:
-    configs = await _discover(args.timeout)
+    host = str(args.device) if args.device else None
+    configs = await _discover(args.timeout, host=host, debug=args.debug)
     _print_devices(configs)
+    if not configs:
+        print(
+            "Discovery can miss receivers. Retry with --timeout 15 --debug, "
+            "or scan --device THERMOSTAT_IP to use unicast discovery.",
+            file=sys.stderr,
+        )
+        if sys.platform == "darwin":
+            print(
+                "On macOS, check your terminal app's Local Network access in "
+                "System Settings > Privacy & Security > Local Network.",
+                file=sys.stderr,
+            )
     return 0 if configs else 1
 
 
 async def _run_play(args: argparse.Namespace) -> int:
     source = _normalize_source(args.source)
     host = args.device if args.device and _looks_like_ip(args.device) else None
-    configs = await _discover(args.timeout, host=host)
+    configs = await _discover(args.timeout, host=host, debug=args.debug)
     config = _choose_device(configs, args.device)
 
     print(f"Streaming {args.source!r} to {_device_summary(config)}...", file=sys.stderr)
@@ -193,7 +223,13 @@ def _build_parser() -> argparse.ArgumentParser:
     scan.add_argument(
         "--debug",
         action="store_true",
-        help="show a traceback instead of a concise error",
+        help="show discovery diagnostics and tracebacks on errors",
+    )
+    scan.add_argument(
+        "-d",
+        "--device",
+        type=ipaddress.IPv4Address,
+        help="thermostat IPv4 address; bypass multicast discovery",
     )
     scan.add_argument(
         "--timeout",
@@ -208,7 +244,7 @@ def _build_parser() -> argparse.ArgumentParser:
     play.add_argument(
         "--debug",
         action="store_true",
-        help="show a traceback instead of a concise error",
+        help="show discovery diagnostics and tracebacks on errors",
     )
     play.add_argument(
         "-d",
