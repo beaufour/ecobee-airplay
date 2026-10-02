@@ -27,6 +27,25 @@ Local files and HTTP(S) URLs are supported. Read `README.md` for setup and
 troubleshooting, and `docs/research.md` when API background or protocol evidence
 is relevant.
 
+## Network troubleshooting
+
+Direct-IP discovery bypasses multicast limitations, but an open TCP 7000 does
+not guarantee playback. The receiver also needs to reach the sender's advertised
+UDP timing and control ports, and the sender needs the receiver's negotiated
+event and audio/control ports. See `README.md` under "Network requirements" for
+the paths and pyatv port settings; this CLI does not expose fixed-port options.
+
+If initial setup succeeds but audio-stream `SETUP` returns `400`, check the UDP
+return paths before concluding that playback requires the same subnet. A
+setup-only experiment with pyatv 0.18.0 succeeded through a narrow timing/control
+relay while retaining the container's original RTSP URL address; changing the
+URL alone failed. This verifies session setup, not audible playback through NAT.
+
+Prefer destination-scoped routing or relays for the needed ports. Do not infer
+that a discovery failure or `400` requires general host networking or broad LAN
+access. Read `docs/research.md` for the experiment and distinguish discovery,
+session setup, transport completion, and confirmed sound when reporting results.
+
 ## Direct fallback
 
 If the repository CLI is unavailable but `uvx` can be used, scan and play with

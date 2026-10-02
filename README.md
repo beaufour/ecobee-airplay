@@ -75,13 +75,49 @@ prior art, discovery records, and the end-to-end validation.
 ## Requirements and compatibility
 
 - Python 3.11 or newer
-- The sender and thermostat must be able to reach each other on the LAN
+- The sender and thermostat must have the bidirectional network paths described
+  below; a shared LAN is the simplest arrangement, but is not required
 - Multicast DNS for name-based discovery, or the thermostat IP address
 - A thermostat that advertises an Ecobee AirPlay/RAOP receiver
 
 `pyatv` supports common inputs including MP3, WAV, OGG, and Vorbis, plus
 HTTP(S) streams. AirPlay behavior is based on reverse-engineered protocols and
 can change with firmware updates.
+
+### Network requirements
+
+An open TCP port 7000 is necessary but does not establish that audio playback
+can work. Session setup also advertises UDP timing and control ports on the
+sender, and the thermostat must be able to reach those ports and receive replies.
+
+| Purpose | Required network path |
+|---|---|
+| Discovery | Multicast DNS (UDP 5353) for name-based discovery, or direct-IP unicast discovery with `--device IP` |
+| Session setup | Sender to thermostat TCP 7000 on the tested model |
+| AirPlay 2 event channel | Sender to the thermostat's TCP event port returned during setup |
+| Timing | Thermostat to the sender's advertised UDP timing port, with replies back to the thermostat |
+| Control / retransmission | Bidirectional UDP between the sender's advertised control port and the thermostat's negotiated control endpoint |
+| Audio | Sender to the thermostat's UDP audio port returned during setup |
+
+Across NAT, containers, or filtered subnets, explicitly route or relay the UDP
+return paths. An outbound TCP connection does not make receiver-initiated UDP
+requests reachable. If forwarding ports, the externally reachable timing and
+control ports must match the ports advertised during setup, or the advertised
+values must be translated accordingly. Rewriting an IP address in the RTSP
+session URL does not create these paths.
+
+With pyatv 0.18.0, sender ports are configurable through
+`settings.protocols.raop.timing_port` and
+`settings.protocols.raop.control_port`; their default value of `0` selects
+ephemeral ports. This CLI does not currently expose those settings. A custom
+client or relay experiment can choose fixed ports to permit narrow rules.
+Ports 47000 and 47001 were used in the setup-only experiment; they are example
+choices, not protocol-assigned ports.
+
+Limit any forwarding or relay to the selected thermostat addresses and required
+ports. General host networking or access to the whole LAN is not required.
+See [the network experiment](docs/research.md#network-return-path-experiment)
+for the verified setup results and their limits.
 
 ## Troubleshooting
 
@@ -91,7 +127,8 @@ No devices found:
   are no Ecobees on the network. Run `uv run ecobee-airplay scan --timeout 15
   --debug` to see whether discovery found any AirPlay/RAOP receivers and why
   devices were ignored.
-- Confirm the thermostat and computer are on the same LAN.
+- Confirm discovery can reach the thermostat; multicast may not cross subnet
+  or container boundaries even when direct-IP connections work.
 - Try `uv run ecobee-airplay scan --device 192.168.1.42 --debug` with the
   thermostat's IP; this uses unicast discovery and works across some networks
   that block multicast DNS. `play --device` also accepts an IP.
@@ -106,7 +143,13 @@ Playback fails:
 
 - First try a short MP3 or WAV file.
 - Check that TCP port 7000 is reachable from the sender.
+- If discovery and initial setup work but audio-stream `SETUP` returns `400 Bad
+  Request`, check the receiver-initiated UDP timing path and replies. On the
+  tested receiver, a narrow timing/control relay resolved this failure without
+  changing the RTSP session URL. Other causes of `400` remain possible.
 - Run with `--debug` for the underlying exception and traceback.
+  Debug protocol logs can contain session encryption keys; redact them before
+  sharing logs.
 - If the scan says the receiver needs pairing or a password, this CLI does not
   currently automate that setup. The tested Ecobee required neither.
 

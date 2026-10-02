@@ -95,6 +95,54 @@ home confirmed hearing the spoken MP3 from the thermostat. This repository's
 CLI wraps the same `pyatv` API with Ecobee-only discovery and safer target
 selection.
 
+## Network return-path experiment
+
+On October 2, 2026, setup-only probes compared a direct LAN sender with a
+NAT-connected container against an Ecobee `EB-STATE5`. Both used pyatv 0.18.0.
+The probes stopped after audio-stream setup, before `RECORD`, audio-source
+decoding, volume changes, or audio transmission. Successful sessions were
+explicitly torn down.
+
+| Sender configuration | Initial session SETUP | Audio-stream SETUP |
+|---|---|---|
+| Direct LAN sender | 200 | 200 |
+| Container, original RTSP session URL | 200 | 400 |
+| Container, LAN host address substituted in RTSP session URL | 200 | 400 |
+| Container, LAN host address in URL plus UDP timing/control relay | 200 | 200 |
+| Container, original URL plus UDP timing/control relay | 200 | 200 |
+
+The logged audio format and setup options matched; session identifiers, UDP
+ports, and per-session encryption material varied. The relay used fixed sender
+ports 47000 (timing) and 47001 (control), listened on the LAN host's address,
+accepted packets only from the selected thermostat, and forwarded them to the
+container. It returned container replies through the same LAN-side socket.
+Both temporary relays closed after each probe; no persistent network settings
+were changed.
+
+The successful rewritten-URL probe relayed nine 32-byte timing requests and
+nine replies. The successful original-URL probe relayed three timing requests
+and three replies. No control-port packets were observed during either probe.
+Thus, receiver-initiated timing traffic and its replies were demonstrated, while
+the separate necessity of a control relay was not tested. Audio transport and
+audible playback through the relay remain unverified.
+
+These results show that the private address in the RTSP URL did not prevent
+setup on this receiver. Providing the UDP return path resolved the observed
+failure. A `400` alone does not prove this cause on another receiver or firmware.
+
+The general requirements are discovery (multicast or direct IP), outbound
+session/event connections, receiver-initiated timing requests with replies,
+bidirectional control traffic, and outbound audio to negotiated receiver ports.
+They can be provided through routing or narrowly scoped relays without placing
+the sender on the same subnet or enabling general host networking. See
+[Network requirements](../README.md#network-requirements) for the path table.
+
+Relevant pyatv implementation sources:
+
+- [RTSP session URL generation](https://github.com/postlund/pyatv/blob/v0.18.0/pyatv/support/rtsp.py)
+- [Sender UDP timing/control sockets and audio transport](https://github.com/postlund/pyatv/blob/v0.18.0/pyatv/protocols/raop/stream_client.py)
+- [AirPlay 2 setup and negotiated event/audio/control ports](https://github.com/postlund/pyatv/blob/v0.18.0/pyatv/protocols/raop/protocols/airplayv2.py)
+
 ## Security observation
 
 The tested receiver accepted audio from any host with LAN reachability, without
