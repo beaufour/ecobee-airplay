@@ -109,8 +109,14 @@ session URL does not create these paths.
 With pyatv 0.18.0, sender ports are configurable through
 `settings.protocols.raop.timing_port` and
 `settings.protocols.raop.control_port`; their default value of `0` selects
-ephemeral ports. This CLI does not currently expose those settings. A custom
-client or relay experiment can choose fixed ports to permit narrow rules.
+ephemeral ports. The CLI exposes them as `play --timing-port` and
+`play --control-port`. Choose fixed ports to permit narrow forwarding rules:
+
+```sh
+uv run ecobee-airplay play audio.mp3 --device THERMOSTAT_IP \
+  --timing-port 47000 --control-port 47001
+```
+
 Ports 47000 and 47001 were used in the setup-only experiment; they are example
 choices, not protocol-assigned ports.
 
@@ -118,6 +124,35 @@ Limit any forwarding or relay to the selected thermostat addresses and required
 ports. General host networking or access to the whole LAN is not required.
 See [the network experiment](docs/research.md#network-return-path-experiment)
 for the verified setup results and their limits.
+
+### Optional native playback service
+
+If full audio routing from the sender is unavailable, playback can be delegated
+to an authenticated native service. The CLI looks for
+`~/.config/ecobee-airplay/service.json`, or the path supplied by
+`--service-config` or `ECOBEE_AIRPLAY_SERVICE_CONFIG`. With an existing service
+configuration, normal `play` commands upload audio instead of streaming locally.
+`--direct` explicitly bypasses this mode.
+
+Example client configuration (keep the token private):
+
+```json
+{
+  "url": "http://127.0.0.1:47002",
+  "token": "SERVICE_TOKEN",
+  "devices": {"Guest Room": "192.0.2.10"}
+}
+```
+
+The service must expose `POST /play/IPv4` accepting raw audio bytes, bearer
+authentication, and an optional `volume` query parameter, and return JSON with
+`transport_completed: true`. Use a service address reachable from the caller;
+the example loopback address applies when caller and service share a host.
+The service must enforce its own receiver allowlist rather than trusting this
+client file. Service mode uploads local files up to 8 MiB; download URL sources
+on the caller first. It preserves volume unless requested and propagates service
+limits and errors. Sender timing/control port options apply only to direct mode.
+A successful response is transport completion, not confirmation of audible sound.
 
 ## Troubleshooting
 

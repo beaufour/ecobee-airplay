@@ -5,11 +5,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import ipaddress
+import json
 import os
 import sys
+import urllib.error
+import urllib.request
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import pyatv
 from pyatv.const import Protocol
@@ -101,6 +105,16 @@ def _volume(value: str) -> float:
     return volume
 
 
+def _udp_port(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("UDP port must be from 0 to 65535") from error
+    if not 0 <= port <= 65535:
+        raise argparse.ArgumentTypeError("UDP port must be from 0 to 65535")
+    return port
+
+
 def _device_summary(config: Any) -> str:
     return f"{config.name} ({config.address}, {_model_name(config)})"
 
@@ -190,6 +204,8 @@ async def _run_scan(args: argparse.Namespace) -> int:
 
 
 async def _run_play(args: argparse.Namespace) -> int:
+    if not args.direct and args.service_config.is_file():
+        return await asyncio.to_thread(_run_service_play, args)
     source = _normalize_source(args.source)
     host = args.device if args.device and _looks_like_ip(args.device) else None
     configs = await _discover(args.timeout, host=host, debug=args.debug)
@@ -202,12 +218,61 @@ async def _run_play(args: argparse.Namespace) -> int:
         protocol=Protocol.RAOP,
     )
     try:
+        atv.settings.protocols.raop.timing_port = args.timing_port
+        atv.settings.protocols.raop.control_port = args.control_port
         if args.volume is not None:
             await atv.audio.set_volume(args.volume)
         await atv.stream.stream_file(source)
     finally:
         await asyncio.gather(*atv.close())
     print("Playback finished.", file=sys.stderr)
+    return 0
+
+
+def _run_service_play(args: argparse.Namespace) -> int:
+    config = json.loads(args.service_config.read_text())
+    devices = config["devices"]
+    matches = [
+        ip for name, ip in devices.items()
+        if args.device
+        and (name.casefold() == args.device.casefold() or ip == args.device)
+    ]
+    if not args.device and len(devices) == 1:
+        matches = list(devices.values())
+    if len(matches) != 1:
+        raise EcobeeAirplayError("select an approved service receiver with --device")
+    if args.source.startswith(("http://", "https://")):
+        raise EcobeeAirplayError(
+            "service playback requires a local file; download audio first"
+        )
+    path = Path(_normalize_source(args.source))
+    if not 0 < path.stat().st_size <= 8 * 1024 * 1024:
+        raise EcobeeAirplayError(
+            "service audio upload must be between 1 byte and 8 MiB"
+        )
+    endpoint = config["url"].rstrip("/") + "/play/" + matches[0]
+    if args.volume is not None:
+        endpoint += "?" + urlencode({"volume": args.volume})
+    request = urllib.request.Request(
+        endpoint, data=path.read_bytes(),
+        headers={"Authorization": "Bearer " + config["token"],
+                 "Content-Type": "application/octet-stream"},
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=75) as response:
+            result = json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        raise EcobeeAirplayError(error.read().decode()) from None
+    except urllib.error.URLError as error:
+        raise EcobeeAirplayError(
+            f"playback service unavailable: {error.reason}"
+        ) from None
+    if not result.get("transport_completed"):
+        raise EcobeeAirplayError(
+            "playback service did not confirm transport completion"
+        )
+    print(json.dumps(result))
     return 0
 
 
@@ -265,6 +330,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="discovery timeout in seconds (default: 5)",
     )
     play.set_defaults(handler=_run_play)
+    play.add_argument("--timing-port", type=_udp_port, default=0,
+                      help="sender UDP timing port; 0 chooses an ephemeral port")
+    play.add_argument("--control-port", type=_udp_port, default=0,
+                      help="sender UDP control port; 0 chooses an ephemeral port")
+    play.add_argument("--service-config", type=Path,
+                      default=Path(os.getenv("ECOBEE_AIRPLAY_SERVICE_CONFIG") or
+                                   Path.home() / ".config/ecobee-airplay/service.json"),
+                      help="optional authenticated playback-service configuration")
+    play.add_argument("--direct", action="store_true",
+                      help="bypass configured service and stream from this machine")
     return parser
 
 

@@ -1,7 +1,7 @@
 import argparse
 from ipaddress import ip_address
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pyatv.const import Protocol
@@ -135,3 +135,60 @@ def test_debug_scan_explains_missing_raop_service(monkeypatch, capsys):
     assert cli.main(["scan", "--debug"]) == 1
 
     assert "ignored: no RAOP service" in capsys.readouterr().err
+
+
+def test_play_uses_fixed_udp_ports_without_changing_volume(monkeypatch):
+    config = FakeConfig("Living Room", "192.0.2.10", "EB-STATE5")
+    raop = SimpleNamespace(timing_port=0, control_port=0)
+    stream_file = AsyncMock()
+    set_volume = AsyncMock()
+    client = SimpleNamespace(
+        settings=SimpleNamespace(protocols=SimpleNamespace(raop=raop)),
+        stream=SimpleNamespace(stream_file=stream_file),
+        audio=SimpleNamespace(set_volume=set_volume),
+        close=Mock(return_value=set()),
+    )
+    monkeypatch.setattr(cli.pyatv, "scan", AsyncMock(return_value=[config]))
+    monkeypatch.setattr(cli.pyatv, "connect", AsyncMock(return_value=client))
+    async def check_ports(source):
+        assert (raop.timing_port, raop.control_port) == (47000, 47001)
+        assert source == "https://example.com/chime.mp3"
+    stream_file.side_effect = check_ports
+    assert cli.main([
+        "play", "https://example.com/chime.mp3", "--device", "192.0.2.10",
+        "--timing-port", "47000", "--control-port", "47001", "--direct",
+    ]) == 0
+    set_volume.assert_not_awaited()
+    client.close.assert_called_once()
+
+
+@pytest.mark.parametrize("value", ["-1", "65536", "not-a-port"])
+def test_play_rejects_invalid_udp_ports(value):
+    with pytest.raises(SystemExit):
+        cli._build_parser().parse_args(["play", "audio.mp3", "--timing-port", value])
+
+
+def test_service_play_uploads_file_without_local_raop(monkeypatch, tmp_path):
+    import io
+    import json
+    source = tmp_path / "clip.mp3"
+    source.write_bytes(b"audio-bytes")
+    config = tmp_path / "service.json"
+    config.write_text(json.dumps({
+        "url": "http://127.0.0.1:47002", "token": "test-token",
+        "devices": {"Guest Room": "192.0.2.10"},
+    }))
+    opener = Mock()
+    opener.open.return_value = io.BytesIO(
+        b'{"transport_completed": true, "audible_confirmed": false}'
+    )
+    monkeypatch.setattr(cli.urllib.request, "build_opener", Mock(return_value=opener))
+    connect = AsyncMock()
+    monkeypatch.setattr(cli.pyatv, "connect", connect)
+    assert cli.main(["play", str(source), "--device", "Guest Room",
+                     "--service-config", str(config)]) == 0
+    request = opener.open.call_args.args[0]
+    assert request.full_url == "http://127.0.0.1:47002/play/192.0.2.10"
+    assert request.data == b"audio-bytes"
+    assert request.get_header("Authorization") == "Bearer test-token"
+    connect.assert_not_awaited()

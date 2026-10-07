@@ -29,11 +29,19 @@ is relevant.
 
 ## Network troubleshooting
 
+When a native playback service is configured in
+`~/.config/ecobee-airplay/service.json`, normal `play` commands upload local
+audio there. Prefer this configured path when direct transport is known to fail;
+use `--direct` only for an intentional direct-network test. Service responses
+confirm transport completion, not audible sound. Read the README's "Optional
+native playback service" section for configuration and upload limits.
+
 Direct-IP discovery bypasses multicast limitations, but an open TCP 7000 does
 not guarantee playback. The receiver also needs to reach the sender's advertised
 UDP timing and control ports, and the sender needs the receiver's negotiated
 event and audio/control ports. See `README.md` under "Network requirements" for
-the paths and pyatv port settings; this CLI does not expose fixed-port options.
+the paths. Use `play --timing-port PORT --control-port PORT` to match an existing
+relay or forwarding rule; the default `0` chooses ephemeral sender ports.
 
 If initial setup succeeds but audio-stream `SETUP` returns `400`, check the UDP
 return paths before concluding that playback requires the same subnet. A

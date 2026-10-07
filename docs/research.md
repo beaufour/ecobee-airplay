@@ -143,6 +143,20 @@ Relevant pyatv implementation sources:
 - [Sender UDP timing/control sockets and audio transport](https://github.com/postlund/pyatv/blob/v0.18.0/pyatv/protocols/raop/stream_client.py)
 - [AirPlay 2 setup and negotiated event/audio/control ports](https://github.com/postlund/pyatv/blob/v0.18.0/pyatv/protocols/raop/protocols/airplayv2.py)
 
+## Setup success versus audible playback
+
+On October 6, 2026, a container client using the fixed timing/control relay
+reported playback completion on the Guest Room receiver, but the listener heard
+nothing. Sending the same short audio clip directly from the LAN host was
+confirmed audible. The remaining container failure was not isolated to a
+specific audio or synchronization packet path.
+
+The timing experiment therefore establishes session setup and timing exchanges,
+not working audio across NAT. A client exiting successfully does not prove that
+the receiver made sound. A native LAN playback service is a working alternative
+when complete audio/control routing has not been established; callers can upload
+audio to a restricted service without acquiring general host or LAN access.
+
 ## Security observation
 
 The tested receiver accepted audio from any host with LAN reachability, without
